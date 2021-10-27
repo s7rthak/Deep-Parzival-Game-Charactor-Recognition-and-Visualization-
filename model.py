@@ -1,4 +1,5 @@
 from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.image import show_cam_on_image
 from efficientnet_pytorch import EfficientNet
 from torch import nn, optim
 from torchvision import models
@@ -8,7 +9,7 @@ from albumentations.pytorch import ToTensorV2
 import cv2
 import glob
 import numpy as np
-import random
+import random, os
 import matplotlib.pyplot as plt
 import itertools
 from data_augmentation import *
@@ -83,6 +84,9 @@ class GameCharacterDataset(Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = cv2.resize(image, (256, 256), interpolation=cv2.INTER_CUBIC)
 
+        input = {}
+        input["original"] = np.copy(image)
+
         label = image_file_path.split('/')[-2]
         label = class_to_idx[label]
 
@@ -98,7 +102,9 @@ class GameCharacterDataset(Dataset):
         if self.transform is not None:
             image = self.transform(image=image)["image"]
 
-        return image, label
+        input["tensor"] = image
+
+        return input, label
 
 
 
@@ -113,12 +119,17 @@ dataset_sizes = {'train': len(train_dataset), 'val': len(test_dataset)}
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 
-def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
+def train_model(model, criterion, optimizer, scheduler, target_layers, num_epochs=25):
     since = time.time()
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
 
+    global cam
+    saved_img_no = 0
+    # Create directory to save visualisations.
+    if not os.path.exists('visualise'):
+        os.makedirs('visualise')
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 10)
@@ -129,13 +140,14 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 model.train()  # Set model to training mode
             else:
                 model.eval()   # Set model to evaluate mode
+                cam = GradCAM(model=model, target_layer=target_layers, use_cuda=torch.cuda.is_available())
 
             running_loss = 0.0
             running_corrects = 0
 
             # Iterate over data.
             for inputs, labels in dataloaders[phase]:
-                inputs = inputs.to(device)
+                inputs_tensor = inputs["tensor"].to(device)
                 labels = labels.to(device)
 
                 # zero the parameter gradients
@@ -144,7 +156,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 # forward
                 # track history if only in train
                 with torch.set_grad_enabled(phase == 'train'):
-                    outputs = model(inputs)
+                    outputs = model(inputs_tensor)
                     _, preds = torch.max(outputs, 1)
                     loss = criterion(outputs, labels)
 
@@ -154,8 +166,18 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                         optimizer.step()
 
                 # statistics
-                running_loss += loss.item() * inputs.size(0)
+                running_loss += loss.item() * inputs_tensor.size(0)
                 running_corrects += torch.sum(preds == labels.data)
+
+                if phase == 'val' and epoch == num_epochs-1: 
+                    for i in range(inputs_tensor.shape[0]):
+                        saved_img_no += 1
+                        grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs_tensor[i], 0))
+                        grayscale_cam = grayscale_cam[0, :]
+                        rgb_image = np.float32(np.squeeze(inputs["original"].cpu().detach().numpy()))[i] / 255
+                        visualization = show_cam_on_image(rgb_image, grayscale_cam, use_rgb=True)
+                        cv2.imwrite("visualise/" + str(saved_img_no) + ".png", visualization)
+
             if phase == 'train':
                 scheduler.step()
 
@@ -201,7 +223,7 @@ def visualize_model(model, num_images=6):
 
     with torch.no_grad():
         for i, (inputs, labels) in enumerate(dataloaders['val']):
-            inputs = inputs.to(device)
+            inputs = inputs["tensor"].to(device)
             labels = labels.to(device)
 
             outputs = model(inputs)
@@ -223,7 +245,7 @@ MODELS = {
     'resnet50': models.resnet50(pretrained=True),
     'effNetB0': EfficientNet.from_pretrained('efficientnet-b0', num_classes=len(classes))
 }
-model_name = 'effNetB0'
+model_name = 'resnet50'
 model_ft = MODELS[model_name]
 print(model_ft)
 
@@ -235,8 +257,7 @@ if FIXED_FEATURE_EXTRACTOR:
 
 if not model_name.startswith('effNet'):
     num_ftrs = model_ft.fc.in_features
-    # Here the size of each output sample is set to 2.
-    # Alternatively, it can be generalized to nn.Linear(num_ftrs, len(class_names)).
+    # Generalized to nn.Linear(num_ftrs, len(class_names)).
     model_ft.fc = nn.Linear(num_ftrs, len(classes))
 
 model_ft = model_ft.to(device)
@@ -249,6 +270,6 @@ optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
 # Decay LR by a factor of 0.1 every 7 epochs
 exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 
-model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, num_epochs=10)
+model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, model_ft.layer4[-1],num_epochs=5)
 
 visualize_model(model_ft)
