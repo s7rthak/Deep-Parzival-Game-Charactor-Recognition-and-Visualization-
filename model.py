@@ -1,7 +1,7 @@
 from pytorch_grad_cam import GradCAM
-from torch import nn
-from torch import optim
-from torchvision.models import resnet50
+from efficientnet_pytorch import EfficientNet
+from torch import nn, optim
+from torchvision import models
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -219,7 +219,13 @@ def visualize_model(model, num_images=6):
                     return
         model.train(mode=was_training)
 
-model_ft = resnet50(pretrained=True)
+MODELS = {
+    'resnet50': models.resnet50(pretrained=True),
+    'effNetB0': EfficientNet.from_pretrained('efficientnet-b0', num_classes=len(classes))
+}
+model_name = 'effNetB0'
+model_ft = MODELS[model_name]
+print(model_ft)
 
 # Work as fixed feature extractor?
 FIXED_FEATURE_EXTRACTOR = False
@@ -227,10 +233,11 @@ if FIXED_FEATURE_EXTRACTOR:
     for param in model_ft.parameters():
         param.requires_grad = False
 
-num_ftrs = model_ft.fc.in_features
-# Here the size of each output sample is set to 2.
-# Alternatively, it can be generalized to nn.Linear(num_ftrs, len(class_names)).
-model_ft.fc = nn.Linear(num_ftrs, len(classes))
+if not model_name.startswith('effNet'):
+    num_ftrs = model_ft.fc.in_features
+    # Here the size of each output sample is set to 2.
+    # Alternatively, it can be generalized to nn.Linear(num_ftrs, len(class_names)).
+    model_ft.fc = nn.Linear(num_ftrs, len(classes))
 
 model_ft = model_ft.to(device)
 
