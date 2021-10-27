@@ -1,7 +1,7 @@
 import cv2
 
 def to_gray(image):
-    result = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    result = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     return result
 
 def to_blurred(image, kernel_sz=5):
@@ -9,12 +9,12 @@ def to_blurred(image, kernel_sz=5):
     return result
 
 def to_outlines(image, th1=60, th2=180):
-    image_bw = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    image_bw = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     outlines = cv2.bitwise_not(cv2.Canny(image_bw, th1, th2))
     return outlines
 
 def to_sketch(image):
-    image_bw = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    image_bw = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     invert_img = cv2.bitwise_not(image_bw)
     blur_img = cv2.GaussianBlur(invert_img, (21,21), 0)
     invblur_img = cv2.bitwise_not(blur_img)
