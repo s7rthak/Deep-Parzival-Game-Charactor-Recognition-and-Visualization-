@@ -105,13 +105,13 @@ class GameCharacterDataset(Dataset):
 train_dataset = GameCharacterDataset(train_image_paths, train_transforms)
 test_dataset = GameCharacterDataset(test_image_paths, test_transforms)
 
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True)
 
 dataloaders = {'train': train_loader, 'val': test_loader}
 dataset_sizes = {'train': len(train_dataset), 'val': len(test_dataset)}
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 
 def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     since = time.time()
@@ -191,7 +191,7 @@ def imshow(inp, title=None):
     plt.imshow(inp)
     if title is not None:
         plt.title(title)
-    plt.pause(0.001)  # pause a bit so that plots are updated
+    plt.pause(1)  # pause a bit so that plots are updated
 
 def visualize_model(model, num_images=6):
     was_training = model.training
@@ -211,7 +211,7 @@ def visualize_model(model, num_images=6):
                 images_so_far += 1
                 ax = plt.subplot(num_images//2, 2, images_so_far)
                 ax.axis('off')
-                ax.set_title('predicted: {}'.format(idx_to_class[preds[j]]))
+                ax.set_title('predicted: {}'.format(idx_to_class[preds[j].item()]))
                 imshow(inputs.cpu().data[j])
 
                 if images_so_far == num_images:
