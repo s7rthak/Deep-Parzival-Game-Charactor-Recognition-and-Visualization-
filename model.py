@@ -3,19 +3,14 @@ from pytorch_grad_cam.utils.image import show_cam_on_image
 from efficientnet_pytorch import EfficientNet
 from torch import nn, optim
 from torchvision import models
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-import cv2
-import glob
-import numpy as np
-import random, os
-import matplotlib.pyplot as plt
-import itertools
-from data_augmentation import *
-import time
-import copy
+import cv2, numpy as np, matplotlib.pyplot as plt
+import random, os, random, time, copy, itertools, glob
+from dataset_class import *
 import torch
+from utils import *
 
 train_transforms = A.Compose(
     [
@@ -52,75 +47,42 @@ for data_path in glob.glob('dataset' + '/*'):
 image_paths = list(itertools.chain.from_iterable(image_paths))
 random.shuffle(image_paths)
 
-print('Image Path: ', image_paths[0])
-print('Class example: ', classes[0])
-
 # 2. Split the dataset into train and test (80:20)
 train_image_paths, test_image_paths = image_paths[:int(0.8*len(image_paths))], image_paths[int(0.8*len(image_paths)):] 
+
+cam_dict = {'ezio': [3, 8, 12, 19, 36], 'geralt': [1, 2, 16, 136], 'mario': [35, 39, 40, 74], 'pacman': [1, 4, 8, 32, 147], 'pikachu': [15, 43, 44, 70, 146], 'ryu': [48, 57, 69, 88], 'sonic hedgehog': [5, 9, 33]}
+cam_image_paths = []
+for key, value in cam_dict.items():
+    for i in range(len(value)):
+        cam_image_paths.append('dataset/{}/{}_{}.png'.format(key, key, value[i]))
 
 idx_to_class = {i:j for i, j in enumerate(classes)}
 class_to_idx = {value:key for key,value in idx_to_class.items()}
 
-
-
-NO_AUGMENTATION = 0
-TO_GRAY = 1
-TO_BLURRED = 2
-TO_OUTLINES = 3
-TO_SKETCH = 4
-
-class GameCharacterDataset(Dataset):
-    def __init__(self, image_paths, transform=None, augmentation=NO_AUGMENTATION):
-        self.image_paths = image_paths
-        self.transform = transform
-        self.augmentation = augmentation
-
-    def __len__(self):
-        return len(self.image_paths)
-
-    def __getitem__(self, idx):
-        image_file_path = self.image_paths[idx]
-        image = cv2.imread(image_file_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, (256, 256), interpolation=cv2.INTER_CUBIC)
-
-        input = {}
-        input["original"] = np.copy(image)
-
-        label = image_file_path.split('/')[-2]
-        label = class_to_idx[label]
-
-        if self.augmentation == TO_GRAY:
-            image = to_gray(image)
-        elif self.augmentation == TO_BLURRED:
-            image = to_blurred(image)
-        elif self.augmentation == TO_OUTLINES:
-            image = to_outlines(image)
-        elif self.augmentation == TO_SKETCH:
-            image = to_sketch(image)
-
-        if self.transform is not None:
-            image = self.transform(image=image)["image"]
-
-        input["tensor"] = image
-
-        return input, label
-
-
-
-train_dataset = GameCharacterDataset(train_image_paths, train_transforms)
-test_dataset = GameCharacterDataset(test_image_paths, test_transforms)
+# Load Dataset
+train_dataset = GameCharacterDataset(train_image_paths, class_to_idx, train_transforms)
+test_dataset = GameCharacterDataset(test_image_paths, class_to_idx, test_transforms)
+# Dataset on which GradCAM operates.
+cam_dataset = GameCharacterDataset(cam_image_paths, class_to_idx, test_transforms)
 
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
+cam_loader = DataLoader(cam_dataset, batch_size=1, shuffle=False)
 
 dataloaders = {'train': train_loader, 'val': test_loader}
 dataset_sizes = {'train': len(train_dataset), 'val': len(test_dataset)}
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
+MODELS = {
+    'resnet50': models.resnet50(pretrained=True),
+    'effNetB0': EfficientNet.from_pretrained('efficientnet-b0', num_classes=len(classes))
+}
+model_name = 'resnet50'
 
-def train_model(model, criterion, optimizer, scheduler, target_layers, num_epochs=25):
+def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, num_epochs=25):
     since = time.time()
+
+    train_accs, val_accs = [], []
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
@@ -128,8 +90,16 @@ def train_model(model, criterion, optimizer, scheduler, target_layers, num_epoch
     global cam
     saved_img_no = 0
     # Create directory to save visualisations.
-    if not os.path.exists('visualise'):
-        os.makedirs('visualise')
+    if not os.path.exists('visualise/{}/{}'.format(model_name, tl_str)):
+        os.makedirs('visualise/{}/{}'.format(model_name, tl_str))
+    # Create directory for saving miclassifications.
+    if not os.path.exists('misclassified'):
+        os.makedirs('misclassified')
+    # Delete previous run misclassifications and store current.
+    files = glob.glob('misclassified/*')
+    for f in files:
+        os.remove(f)
+
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 10)
@@ -140,7 +110,6 @@ def train_model(model, criterion, optimizer, scheduler, target_layers, num_epoch
                 model.train()  # Set model to training mode
             else:
                 model.eval()   # Set model to evaluate mode
-                cam = GradCAM(model=model, target_layer=target_layers, use_cuda=torch.cuda.is_available())
 
             running_loss = 0.0
             running_corrects = 0
@@ -165,18 +134,16 @@ def train_model(model, criterion, optimizer, scheduler, target_layers, num_epoch
                         loss.backward()
                         optimizer.step()
 
+                    # Store misclassified images.
+                    if phase == 'val' and epoch == num_epochs-1 and (preds != labels).item():
+                        img = np.squeeze(inputs["original"].cpu().detach().numpy())
+                        filename = inputs["filename"][0].split('/')[-1]
+                        cv2.imwrite("misclassified/{}_as_{}".format(filename, idx_to_class[preds.item()]), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+
                 # statistics
                 running_loss += loss.item() * inputs_tensor.size(0)
                 running_corrects += torch.sum(preds == labels.data)
 
-                if phase == 'val' and epoch == num_epochs-1: 
-                    for i in range(inputs_tensor.shape[0]):
-                        saved_img_no += 1
-                        grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs_tensor[i], 0))
-                        grayscale_cam = grayscale_cam[0, :]
-                        rgb_image = np.float32(np.squeeze(inputs["original"].cpu().detach().numpy()))[i] / 255
-                        visualization = show_cam_on_image(rgb_image, grayscale_cam, use_rgb=True)
-                        cv2.imwrite("visualise/" + str(saved_img_no) + ".png", visualization)
 
             if phase == 'train':
                 scheduler.step()
@@ -187,6 +154,11 @@ def train_model(model, criterion, optimizer, scheduler, target_layers, num_epoch
             print('{} Loss: {:.4f} Acc: {:.4f}'.format(
                 phase, epoch_loss, epoch_acc))
 
+            if phase == 'train':
+                train_accs.append(epoch_acc)
+            else:
+                val_accs.append(epoch_acc)
+
             # deep copy the model
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
@@ -194,6 +166,7 @@ def train_model(model, criterion, optimizer, scheduler, target_layers, num_epoch
 
         print()
 
+    draw_plot(train_accs, val_accs, 'Accuracy')
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
@@ -201,6 +174,23 @@ def train_model(model, criterion, optimizer, scheduler, target_layers, num_epoch
 
     # load best model weights
     model.load_state_dict(best_model_wts)
+
+    # Run gradCAM on selected pics.
+    model.eval()
+    for inputs, labels in cam_loader:
+        inputs_tensor = inputs["tensor"].to(device)
+        labels = labels.to(device)
+
+        outputs = model(inputs_tensor)
+
+        cam = GradCAM(model=model, target_layer=target_layer, use_cuda=torch.cuda.is_available())
+        grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs_tensor[0], 0))
+        grayscale_cam = grayscale_cam[0, :]
+        rgb_image = np.float32(np.squeeze(inputs["original"].cpu().detach().numpy())) / 255
+        visualization = show_cam_on_image(rgb_image, grayscale_cam, use_rgb=True)
+        filename = inputs["filename"][0].split('/')[-1]
+        cv2.imwrite("visualise/{}/{}/{}".format(model_name, tl_str, filename), cv2.cvtColor(visualization, cv2.COLOR_RGB2BGR))
+
     return model
 
 def imshow(inp, title=None):
@@ -241,13 +231,11 @@ def visualize_model(model, num_images=6):
                     return
         model.train(mode=was_training)
 
-MODELS = {
-    'resnet50': models.resnet50(pretrained=True),
-    'effNetB0': EfficientNet.from_pretrained('efficientnet-b0', num_classes=len(classes))
-}
-model_name = 'resnet50'
 model_ft = MODELS[model_name]
-print(model_ft)
+
+SHOW_MODEL = False
+if SHOW_MODEL:
+    print(model_ft)
 
 # Work as fixed feature extractor?
 FIXED_FEATURE_EXTRACTOR = False
@@ -270,6 +258,6 @@ optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
 # Decay LR by a factor of 0.1 every 7 epochs
 exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 
-model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, model_ft.layer4[-1],num_epochs=5)
+model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, model_ft.layer3[-1], 'layer3', num_epochs=5)
 
-visualize_model(model_ft)
+# visualize_model(model_ft)
