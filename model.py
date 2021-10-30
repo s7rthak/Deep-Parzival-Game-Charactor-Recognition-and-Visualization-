@@ -75,7 +75,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 MODELS = {
     'resnet50': models.resnet50(pretrained=True),
-    'effNetB0': EfficientNet.from_pretrained('efficientnet-b0', num_classes=len(classes))
+    'effnetB0': EfficientNet.from_pretrained('efficientnet-b0', num_classes=len(classes)),
+    'vggnet16': models.vgg16(pretrained=True),
+    'vggnet19': models.vgg19(pretrained=True)
 }
 model_name = 'resnet50'
 
@@ -160,7 +162,7 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
 
         print()
 
-    draw_plot(train_accs, val_accs, 'Accuracy')
+    draw_plot(train_accs, val_accs, 'Accuracy', "{}_accuracy.png".format(model_name))
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
@@ -244,7 +246,7 @@ def visualize_model(model, num_images=6):
 
 model_ft = MODELS[model_name]
 
-SHOW_MODEL = False
+SHOW_MODEL = True
 if SHOW_MODEL:
     print(model_ft)
 
@@ -254,10 +256,15 @@ if FIXED_FEATURE_EXTRACTOR:
     for param in model_ft.parameters():
         param.requires_grad = False
 
-if not model_name.startswith('effNet'):
+# Add in custom layer to accomodate our dataset classes
+if model_name.startswith('resnet'):
     num_ftrs = model_ft.fc.in_features
-    # Generalized to nn.Linear(num_ftrs, len(class_names)).
     model_ft.fc = nn.Linear(num_ftrs, len(classes))
+elif model_name.startswith('vggnet'):
+    num_ftrs = model_ft.classifier[-1].in_features
+    features = list(model_ft.classifier.children())[:-1]
+    features.extend([torch.nn.Linear(num_ftrs, len(classes))])
+    model_ft.classifier = nn.Sequential(*features)
 
 model_ft = model_ft.to(device)
 

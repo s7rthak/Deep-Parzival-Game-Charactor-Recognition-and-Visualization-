@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 
-def draw_plot(train, val, type):
+def draw_plot(train, val, type, save_name=None):
     plt.figure(figsize=(10,5))
     plt.title("Training and Validation {}".format(type))
     plt.plot(val, label="val")
@@ -8,4 +8,7 @@ def draw_plot(train, val, type):
     plt.xlabel("Iterations")
     plt.ylabel(type)
     plt.legend()
-    plt.show()
+    if save_name is None:
+        plt.show()
+    else:
+        plt.savefig(save_name, bbox_inches='tight')
