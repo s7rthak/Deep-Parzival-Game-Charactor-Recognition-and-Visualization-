@@ -4,7 +4,7 @@ def to_gray(image):
     result = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     return result
 
-def to_blurred(image, kernel_sz=5, sx=0, sy=0):
+def to_blurred(image, kernel_sz=(5,5), sx=0, sy=0):
     result = cv2.GaussianBlur(image, kernel_sz, sigmaX=sx, sigmaY=sy)
     return result
 

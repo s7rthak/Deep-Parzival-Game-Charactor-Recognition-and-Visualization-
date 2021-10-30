@@ -13,7 +13,11 @@ import torch
 from utils import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-def develop_model(model, blur_sd):
+def develop_model(model, blur_dict=None):
+    print()
+    print(blur_dict)
+    print()
+
     train_transforms = A.Compose(
         [
             # A.SmallestMaxSize(max_size=350),
@@ -56,8 +60,9 @@ def develop_model(model, blur_sd):
     class_to_idx = {value:key for key,value in idx_to_class.items()}
 
     # Load Dataset
-    train_dataset = GameCharacterDataset(train_image_paths, class_to_idx, train_transforms, augmentation=TO_BLURRED, blur_dict={'kernel_sz': (7,7), 'sx': blur_sd, 'sy': blur_sd})
-    test_dataset = GameCharacterDataset(test_image_paths, class_to_idx, test_transforms, augmentation=TO_BLURRED, blur_dict={'kernel_sz': (7,7), 'sx': blur_sd, 'sy': blur_sd})
+    train_dataset = GameCharacterDataset(train_image_paths, class_to_idx, train_transforms) if blur_dict is None else GameCharacterDataset(train_image_paths, class_to_idx, train_transforms, augmentation=TO_BLURRED, blur_dict=blur_dict)
+    test_dataset = GameCharacterDataset(test_image_paths, class_to_idx, test_transforms) if blur_dict is None else GameCharacterDataset(test_image_paths, class_to_idx, test_transforms, augmentation=TO_BLURRED, blur_dict=blur_dict)
+
 
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
@@ -164,11 +169,21 @@ model_name = 'resnet50'
 model_ft = MODELS[model_name]
 model_ft = model_ft.to(device)
 
-model_ft = develop_model(model_ft, 20)
-model_ft = develop_model(model_ft, 10)
-model_ft = develop_model(model_ft, 5)
-model_ft = develop_model(model_ft, 2.5)
-model_ft = develop_model(model_ft, 2)
-model_ft = develop_model(model_ft, 1)
-model_ft = develop_model(model_ft, 0.5)
-model_ft = develop_model(model_ft, 0)
+blur_dict={'kernel_sz': (7,7), 'sx': 20, 'sy': 20}
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict['sx'], blur_dict['sy'] = 10, 10
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict['sx'], blur_dict['sy'] = 5, 5
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict['sx'], blur_dict['sy'] = 2.5, 2.5
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict['sx'], blur_dict['sy'] = 2, 2
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict['sx'], blur_dict['sy'] = 1, 1
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict['sx'], blur_dict['sy'] = 0.5, 0.5
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict['sx'], blur_dict['sy'] = 0, 0
+model_ft = develop_model(model_ft, blur_dict)
+blur_dict = None
+model_ft = develop_model(model_ft, blur_dict)

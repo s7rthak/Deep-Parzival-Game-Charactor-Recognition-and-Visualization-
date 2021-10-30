@@ -134,12 +134,6 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
                         loss.backward()
                         optimizer.step()
 
-                    # Store misclassified images.
-                    if phase == 'val' and epoch == num_epochs-1 and (preds != labels).item():
-                        img = np.squeeze(inputs["original"].cpu().detach().numpy())
-                        filename = inputs["filename"][0].split('/')[-1]
-                        cv2.imwrite("misclassified/{}_as_{}".format(filename, idx_to_class[preds.item()]), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-
                 # statistics
                 running_loss += loss.item() * inputs_tensor.size(0)
                 running_corrects += torch.sum(preds == labels.data)
@@ -175,8 +169,25 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
     # load best model weights
     model.load_state_dict(best_model_wts)
 
-    # Run gradCAM on selected pics.
     model.eval()
+    # Store misclassified images.
+    for inputs, labels in test_loader:
+        inputs_tensor = inputs["tensor"].to(device)
+        labels = labels.to(device)
+
+        outputs = model(inputs_tensor)
+        _, preds = torch.max(outputs, 1)
+
+        if (preds != labels).item():
+            cam = GradCAM(model=model, target_layer=target_layer, use_cuda=torch.cuda.is_available())
+            grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs_tensor[0], 0))
+            grayscale_cam = grayscale_cam[0, :]
+            rgb_image = np.float32(np.squeeze(inputs["original"].cpu().detach().numpy())) / 255
+            visualization = show_cam_on_image(rgb_image, grayscale_cam, use_rgb=True)
+            filename = inputs["filename"][0].split('/')[-1]
+            cv2.imwrite("misclassified/{}_as_{}".format(filename, idx_to_class[preds.item()]), cv2.cvtColor(visualization, cv2.COLOR_RGB2BGR))
+
+    # Run gradCAM on selected pics.
     for inputs, labels in cam_loader:
         inputs_tensor = inputs["tensor"].to(device)
         labels = labels.to(device)
@@ -258,6 +269,6 @@ optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
 # Decay LR by a factor of 0.1 every 7 epochs
 exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 
-model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, model_ft.layer3[-1], 'layer3', num_epochs=5)
+model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, model_ft.layer4[-1], 'layer4', num_epochs=5)
 
 # visualize_model(model_ft)

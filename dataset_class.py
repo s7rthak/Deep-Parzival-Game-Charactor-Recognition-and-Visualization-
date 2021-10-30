@@ -10,7 +10,7 @@ TO_OUTLINES = 3
 TO_SKETCH = 4
 
 class GameCharacterDataset(Dataset):
-    def __init__(self, image_paths, class_to_idx, transform=None, augmentation=NO_AUGMENTATION, blur_dict={}):
+    def __init__(self, image_paths, class_to_idx, transform=None, augmentation=NO_AUGMENTATION, blur_dict=None):
         self.image_paths = image_paths
         self.transform = transform
         self.augmentation = augmentation
@@ -37,7 +37,7 @@ class GameCharacterDataset(Dataset):
         if self.augmentation == TO_GRAY:
             image = to_gray(image)
         elif self.augmentation == TO_BLURRED:
-            image = to_blurred(image, **self.blur_dict)
+            image = to_blurred(image, **self.blur_dict) if self.blur_dict is not None else to_blurred(image)
         elif self.augmentation == TO_OUTLINES:
             image = to_outlines(image)
         elif self.augmentation == TO_SKETCH:
