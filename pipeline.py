@@ -13,6 +13,9 @@ import torch
 from utils import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+train_accs, val_accs = [], []
+
 def develop_model(model, blur_dict=None):
     print()
     print(blur_dict)
@@ -83,13 +86,10 @@ def develop_model(model, blur_dict=None):
     num_epochs = 5
     since = time.time()
 
-    train_accs, val_accs = [], []
-
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
 
     global cam
-    saved_img_no = 0
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -140,9 +140,9 @@ def develop_model(model, blur_dict=None):
                 phase, epoch_loss, epoch_acc))
 
             if phase == 'train':
-                train_accs.append(epoch_acc)
+                train_accs.append(epoch_acc.item())
             else:
-                val_accs.append(epoch_acc)
+                val_accs.append(epoch_acc.item())
 
             # deep copy the model
             if phase == 'val' and epoch_acc > best_acc:
@@ -162,8 +162,7 @@ def develop_model(model, blur_dict=None):
     return model
 
 MODELS = {
-    'resnet50': models.resnet50(pretrained=False),
-    'effNetB0': EfficientNet.from_pretrained('efficientnet-b0', num_classes=7)
+    'resnet50': models.resnet50(pretrained=False)
 }
 model_name = 'resnet50'
 model_ft = MODELS[model_name]
@@ -187,3 +186,5 @@ blur_dict['sx'], blur_dict['sy'] = 0, 0
 model_ft = develop_model(model_ft, blur_dict)
 blur_dict = None
 model_ft = develop_model(model_ft, blur_dict)
+
+draw_plot(train_accs, val_accs, 'Accuracy', "pipelined_{}_accuracy.png".format(model_name))

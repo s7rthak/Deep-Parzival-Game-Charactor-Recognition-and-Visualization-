@@ -98,9 +98,9 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
     if not os.path.exists('misclassified'):
         os.makedirs('misclassified')
     # Delete previous run misclassifications and store current.
-    files = glob.glob('misclassified/*')
-    for f in files:
-        os.remove(f)
+    # files = glob.glob('misclassified/*')
+    # for f in files:
+    #     os.remove(f)
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -151,9 +151,9 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
                 phase, epoch_loss, epoch_acc))
 
             if phase == 'train':
-                train_accs.append(epoch_acc)
+                train_accs.append(epoch_acc.item())
             else:
-                val_accs.append(epoch_acc)
+                val_accs.append(epoch_acc.item())
 
             # deep copy the model
             if phase == 'val' and epoch_acc > best_acc:
@@ -187,7 +187,8 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
             rgb_image = np.float32(np.squeeze(inputs["original"].cpu().detach().numpy())) / 255
             visualization = show_cam_on_image(rgb_image, grayscale_cam, use_rgb=True)
             filename = inputs["filename"][0].split('/')[-1]
-            cv2.imwrite("misclassified/{}_as_{}".format(filename, idx_to_class[preds.item()]), cv2.cvtColor(visualization, cv2.COLOR_RGB2BGR))
+            file, ext = filename.split('.')
+            cv2.imwrite("misclassified/{}_as_{}.{}".format(file, idx_to_class[preds.item()], ext), cv2.cvtColor(visualization, cv2.COLOR_RGB2BGR))
 
     # Run gradCAM on selected pics.
     for inputs, labels in cam_loader:
@@ -208,7 +209,7 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
 
 def imshow(inp, title=None):
     """Imshow for Tensor."""
-    inp = inp.numpy().transpose((1, 2, 0))
+    inp = inp.cpu().numpy().transpose((1, 2, 0))
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])
     inp = std * inp + mean
