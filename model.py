@@ -11,6 +11,7 @@ import random, os, random, time, copy, itertools, glob
 from dataset_class import *
 import torch
 from utils import *
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 train_transforms = A.Compose(
     [
@@ -85,6 +86,7 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
     since = time.time()
 
     train_accs, val_accs = [], []
+    y_true, y_pred = [], []
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
@@ -180,6 +182,10 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
         outputs = model(inputs_tensor)
         _, preds = torch.max(outputs, 1)
 
+        # Get confusion matrix entries
+        y_pred.append(idx_to_class[int(preds.item())])
+        y_true.append(idx_to_class[int(labels.item())])
+
         if (preds != labels).item():
             cam = GradCAM(model=model, target_layer=target_layer, use_cuda=torch.cuda.is_available())
             grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs_tensor[0], 0))
@@ -189,6 +195,15 @@ def train_model(model, criterion, optimizer, scheduler, target_layer, tl_str, nu
             filename = inputs["filename"][0].split('/')[-1]
             file, ext = filename.split('.')
             cv2.imwrite("misclassified/{}_as_{}.{}".format(file, idx_to_class[preds.item()], ext), cv2.cvtColor(visualization, cv2.COLOR_RGB2BGR))
+
+    # Save confusion matrix
+    y_true = [y_true[i] if y_true[i] != 'sonic hedgehog' else 'sonic' for i in range(len(y_true))]
+    y_pred = [y_pred[i] if y_pred[i] != 'sonic hedgehog' else 'sonic' for i in range(len(y_pred))]
+    sc = [classes[i] if classes[i] != 'sonic hedgehog' else 'sonic' for i in range(len(classes))]
+    cnf_matrix = confusion_matrix(y_true, y_pred, labels=sc)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cnf_matrix, display_labels=sc)
+    disp.plot()
+    plt.savefig('confusion_matrix.png', bbox_inches='tight')
 
     # Run gradCAM on selected pics.
     for inputs, labels in cam_loader:
@@ -277,6 +292,6 @@ optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
 # Decay LR by a factor of 0.1 every 7 epochs
 exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 
-model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, model_ft.layer4[-1], 'layer4', num_epochs=5)
+model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler, model_ft.layer1[-1], 'layer1', num_epochs=5)
 
 # visualize_model(model_ft)
